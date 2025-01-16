@@ -71,24 +71,8 @@ class new:
                 s = ssl.wrap_socket(s)
             return s
     
-#     def nonBlockingRead(self, socket):
-#         socket.setblocking(False)
-#         response = ""
-#         for i in range(2):
-#             time.sleep(0.5)
-#             if socket.readinto(buffer) is not None:
-#         return str(response)
-#                 
-    def testPost(self,url):
-        import urequests
-        r =  urequests.get(url,headers = {"Authorization":"Bearer v9^2S@g03I7B5AYeH1pNdPc5FWgiNGkT"})
-        print(r.text)
-        
 
 
-
-
-  
 
 
     """
@@ -162,3 +146,4 @@ class new:
             dataString
         )
         return request
+
