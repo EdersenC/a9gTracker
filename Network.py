@@ -96,6 +96,7 @@ class new:
              data:dict,
              auth:str = "",
              host:str = "",
+             headers:dict = None,
              quantity:int = 1,
              interval:int = 0,
              socket:socket = None
@@ -104,9 +105,13 @@ class new:
             auth = self.auth
         if host == "":
             host = self.host
+        if headers == None:
+            headers = {
+                "Content-Type":"application/json"
+            }
         if socket is None:
             socket = self.connect(host = host)
-        request = self.formRequest(path, data, auth, host)    
+        request = self.formRequest(type="POST",path=path,data=data,host=host,headers=headers)    
         try:
             while quantity > 0:
                 socket.write(request)
@@ -123,27 +128,34 @@ class new:
             print(e)
         
 
+    def formHeaders(headers:dict) -> str:
+        headersString = ""
+        for key in headers:
+            headersString += "{}:{}\r\n".format(key,headers[key])
+        return headersString
 
-    def formRequest(self,path,data, auth, host) -> str:
+    def formRequest(self,type:str,path:str,data:dict,host:str,headers:dict) -> str:
         dataString = "" 
         try:
             dataString = ujson.dumps(data)
         except Exception as e:
             print("Error Deserializing Python Object",e)
         dataLength = len(dataString)
-        print(dataString)
+
+        headersString = self.formHeaders(headers)
         request = (
-            "POST {} HTTP/1.1\r\n"
+            "{} {} HTTP/1.1\r\n"
             "Host: {}\r\n"
-            "Authorization: {}\r\n"
-            "Connection:keep-alive\r\n"
+            "{}"
             "Content-Length: {}\r\n\r\n"
             "{}").format(
+            type,
             path,
             host,
-            auth,
+            headersString,
             dataLength,
             dataString
         )
-        return request
 
+        print(request)
+        return request
