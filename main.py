@@ -11,6 +11,7 @@ sys.path.append("/lib/")
 import Network
 import machine
 import urequests
+import math
 BASEPATH = "/t/"
 SETTINGSPATH =  BASEPATH+ "System/Settings.json"
 
@@ -31,6 +32,16 @@ def saveJson(file, data):
     try:
         with open(file, "w") as f:
             ujson.dump(data, f)
+    except OSError as e:
+        print(e)
+        return None
+
+
+def saveFile(file, data, mode="w"):
+    print("file:", file)
+    try:
+        with open(file, mode) as f:
+            f.write(data)
     except OSError as e:
         print(e)
         return None
@@ -90,9 +101,9 @@ possibilitly that maybe the cell towers strength varies significantlty (really d
     - Rigorous Testing and Loging, sigh...
     - Final Version can implment external source/board to power cycle A9G Board( or find some software alternative)
 """
-def init(system:dict,settings:dict,network:Network) -> bool  :
+def init(system:dict,settings:dict,network:Network) -> bool:
     while True:
-        if network.start(attempt= 0):
+        if network.start():
             print("Connected to {}".format(network.provider))
             system["network"] = networkCheck()
             system["location"] = getLocation()
@@ -100,24 +111,162 @@ def init(system:dict,settings:dict,network:Network) -> bool  :
         else:
             print("Failed to connect to {}".format(network.provider))
             time.sleep(60)
-            shutdown()
     
 
 def track(network, routes ,interval) -> str:
     connection = network.connect()
     data = getLocation()
-    
-    response=network.post(
+    requestAmount = 200
+
+    response, headers=network.post(
         path=		routes["location"],
         data= 		data,
-        auth=		"",
-        quantity=	500,
+        headers=	{"Connection":"close" },
+        quantity=	requestAmount,
         interval=	interval,
         socket=		connection
     )
     print("Server Response:{} \n\n Sending nextLocation".format(response))
     connection.close()
     return response
+
+
+class Update:
+    def __init__(self,update):
+        import ubinascii
+        self.check = ubinascii
+        self.version=  		update["version"]
+        self.progress= 		update["progress"]
+        self.fileName=  	update["fileName"] 
+        self.fileSize=  	update["fileSize"]
+        self.amountWritten= update["amountWritten"]
+        self.chunkSize= 	update["chunkSize"]
+        self.chunk =		""
+        self.checkSum= 		update["checkSum"]
+
+    def toDict(self):
+        return {
+            "version":self.version,
+            "progress":self.progress,
+            "fileName":self.fileName,
+            "fileSize":self.fileSize,
+            "amountWritten":self.amountWritten,
+            "chunkSize":self.chunkSize,
+            "checkSum":self.checkSum
+        }
+    
+
+    def progressFile(self):
+        progress = self.amountWritten/self.fileSize
+        percentage = math.floor(progress*100)
+        self.progress = percentage
+
+
+    def	runCheckSum(self):
+            checkSum = self.check.crc32(self.chunk)
+            self.checkSum = str(checkSum) 
+            return self.checkSum 
+        
+        
+        
+        
+        
+    
+
+
+def processChunk(data: Update, network: Network, routes: dict) -> str:
+    response,_= network.post(
+        path=routes["update"],
+        data=data.toDict(),
+        headers={"Connection": "close"},
+        quantity=1,
+    )
+    # if the file has been written return next instruction from server
+    if data.fileSize <= data.amountWritten and data.amountWritten !=0:
+        print("File has been written:",response)
+        nextInstruction = ujson.loads(response)
+        nextInstruction["data"] = ujson.loads(nextInstruction["data"])
+        return nextInstruction
+    
+    
+    # if the file has not been written, write the next chunk
+    data.chunk= response
+    data.runCheckSum()
+
+    saveFile(BASEPATH+data.fileName, response, "a")
+    data.amountWritten += len(response)
+    data.progressFile()
+    print("Amount Written:{} for File:{} \n The Check sum for the file{}".format(data.amountWritten, data.fileName,data.checkSum))
+    nextInstruction = {"action":"update","data":data.toDict()}
+    print("\n\n NEXT SET OF INSTRUCTIONS: ",nextInstruction)
+    return nextInstruction
+
+
+
+def parseInstruction(instruction:dict,network:Network,routes:dict)->str:
+    print("Recieved Instructions from Server: {}".format(instruction))
+    MODE = None 
+    currentAction = instruction["action"]
+    instruction["chunkSize"] = network.bufferSize
+
+    if currentAction  == "update":
+        update = Update(instruction["data"])
+        update.chunkSize = network.bufferSize
+        nextInstruction=processChunk(update,network,routes)
+        return parseInstruction(nextInstruction,network,routes)
+    elif currentAction == "updateState":
+        pass
+    elif currentAction == "Fault":
+        pass
+    elif currentAction == "Idle":
+        pass
+    elif currentAction == "reboot":
+        pass
+    elif currentAction == "print":
+        print("INSTRUCTION Print from server:{}".format(instruction["data"]))
+        pass
+    else:
+        pass
+    return MODE
+
+
+
+
+
+def updateSystem(network, routes):
+    update = {}
+    update["version"] = "0.0.1"
+    update["progress"] = 0
+    update["fileName"] = ""
+    update["fileSize"] = 0
+    update["amountWritten"] = 0
+    update["chunkSize"] = 1046
+    update["checkSum"] = "0.0.1"
+
+    connection = network.connect()
+    network.bufferSize = update["chunkSize"]
+    data = update
+    requestAmount = 1
+
+    if update["progress"] == 0:
+        instruction,header =network.post(
+            path=		routes["update"],
+            data= 		data,
+            headers=	{"Connection":"close" },
+            quantity=	requestAmount,
+            interval=	0,
+            socket=		connection
+        )
+        print(instruction)
+        instruction = ujson.loads(instruction)
+        instruction["data"] = ujson.loads(instruction["data"])
+        parseInstruction(instruction,network,routes)
+        connection.close()
+        return
+
+
+
+
 
 
 def main():
@@ -132,24 +281,32 @@ def main():
         print("Failed to initialize")
         return
 
+
     modes = settings["modes"]
-    curreentMode = modes["currentMode"] 
-    if curreentMode== "tracking":
+    currentMode = modes["currentMode"] 
+    if currentMode== "tracking":
         print("Starting Tracking")
         track(
             network =   network, 
             routes  =   settings["server"]["routes"],
-            interval=   modes["currentMode"]["interval"]
+            interval=   modes[currentMode]["interval"]
         )
-    elif curreentMode == "idle":
+    elif currentMode == "idle":
         print("Entering Idle Mode")
         pass
+    elif currentMode == "update":
+        print("Entering Update Mode")
+        updateSystem(
+            network,
+            settings["server"]["routes"]
+            )
+    elif currentMode == "printing":
+        print("Joe mama")
 
     saveJson(BASEPATH+"System/iving.json", data)
     shutdown()
 
 
-
-
 if __name__ == "__main__":
     main()
+
