@@ -1,5 +1,4 @@
 📡 A9G GPS Tracker Project
-
 A9G GPS Tracker Project!
 This project uses the A9G module to gather GPS coordinates and optionally send them via GSM (text, server, etc.).
 Ideal for beginner to intermediate hardware hackers looking to learn GPS and GSM integration!
@@ -34,3 +33,6 @@ Ideal for beginner to intermediate hardware hackers looking to learn GPS and GSM
     USB to UART adapter (for initial setup and flashing)
 
     Serial Monitor tool (e.g., PuTTY, Arduino Serial Monitor)
+
+
+![The current setup](A9GSetup.jpg)
