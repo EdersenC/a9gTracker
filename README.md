@@ -1,38 +1,43 @@
 📡 A9G GPS Tracker Project
-A9G GPS Tracker Project!
-This project uses the A9G module to gather GPS coordinates and optionally send them via GSM (text, server, etc.).
-Ideal for beginner to intermediate hardware hackers looking to learn GPS and GSM integration!
-✨ Features
 
-    Real-time GPS location tracking
+This project started as part of my goal to eventually build a full car tracking system.
+Before working on the full system, I wanted to first understand how the A9G board works — how it handles GPS data, GSM communication, and how to control it at a low level.
 
-    GSM communication support (SMS, GPRS)
+To make development easier, I'm using the [gprs_a9 MicroPython](https://github.com/pulkin/micropython/tree/master/ports/gprs_a9) port, which provides a Python environment for the A9G board.
+This lets me quickly prototype, send commands, and handle GPS/GSM features directly in Python.
 
-    Low-power sleep modes
+Through this project, I'm learning and practicing:
 
-    Basic command interface via UART
+    🔌 UART communication — setting up serial communication with the board
 
-    Expandable for IoT and asset-tracking applications
+    📡 GPS basics — getting live location data from satellites
 
-🛠️ Hardware Requirements
+    🛜 GSM fundamentals — sending messages and handling mobile network communication
 
-    A9G module
+    💬 AT Commands — managing the module’s features via text commands(Planned*)
 
-    Microcontroller (e.g., Arduino, ESP32, STM32)
+    ⚡ Microcontroller programming — integrating the A9G with external systems
 
-    Antennas (GPS + GSM)
+    🐍 MicroPython development — programming the A9G in a higher-level, faster way
 
-    SIM Card with data plan (for GSM features)
-
-    Power supply (Li-Po battery recommended)
-
-🧩 Software Requirements
-
-    Arduino IDE / PlatformIO / STM32CubeIDE (depending on your MCU)
-
-    USB to UART adapter (for initial setup and flashing)
-
-    Serial Monitor tool (e.g., PuTTY, Arduino Serial Monitor)
+This is a first step toward building a complete car tracking system — and a great way to get hands-on with embedded systems, GPS, and IoT communication!
 
 
-![The current setup](A9GSetup.jpg)
+### 📶 SIM Provider
+
+For this project, I'm using a SIM card from [Hologram.io](https://www.hologram.io/).
+
+Hologram provides IoT-focused SIM cards that work globally across multiple networks, making it a great choice for projects like GPS trackers and remote sensors. Their plans are flexible, with pay-as-you-go options, which is ideal for development and testing without committing to large contracts.
+
+Key reasons I chose Hologram.io:
+- 🌍 Global coverage — works with a wide range of carriers worldwide
+- 💵 Flexible pricing — no large monthly fees, pay only for what you use
+- 🔧 Developer-friendly — easy setup, good documentation, and APIs for managing SIMs
+
+You can manage your SIMs, monitor data usage, and configure alerts through their online dashboard, which is super helpful during prototyping and testing phases.
+
+
+
+Here’s my current configuration. In the future, I plan to mount everything onto a chassis and power it with a battery.
+<img src="A9GSetup.jpg" alt="The current setup" width="500"/>
+
