@@ -7,6 +7,7 @@ import gc
 import upip
 import time
 import machine
+import error_detection
 
 
 
@@ -21,7 +22,7 @@ class new:
 
                             
 
-    def start(self,attempt,maxattempts = 5) -> bool:
+    def start(self,attempt=0,maxattempts = 5) -> bool:
         if self.gprsStatus():
             print("GPRS IS ALREADY CONNECTED")
             return True
@@ -35,7 +36,7 @@ class new:
                 return self.start(attempt)
             time.sleep(60)
             machine.reset()
-            return True
+            return False
         except Exception as ex:
             if str(ex).endswith("ETIMEDOUT"):
                 print("Timed Out: ",ex)
@@ -43,7 +44,7 @@ class new:
                 machine.reset()
             else:
                 print("Exception occured at init: ",ex)
-                return True
+                return False
 
     def stop(self):
         cellular.gprs(False)
@@ -100,7 +101,7 @@ class new:
              quantity:int = 1,
              interval:int = 0,
              socket:socket = None
-        ) -> str:
+        ) -> tuple:
         if auth == "":
             auth = self.auth
         if host == "":
@@ -120,12 +121,13 @@ class new:
                 time.sleep(interval)
             response = socket.read()
             socket.close()
-            return response 
+            return response, {}
         except OSError as e:
             if str(e) == "-256":
                 print("Socket Closed:{} \n\n Reconnecting To:{}".format(e,host))
                 return self.post(path=path,data=data,auth=auth,quantity=quantity)
             print(e)
+            return "", {"error": str(e), "code": error_detection.ErrorCode.NETWORK_FAILURE}
         
 
     def formHeaders(headers:dict) -> str:

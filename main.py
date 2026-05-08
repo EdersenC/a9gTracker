@@ -12,8 +12,10 @@ import Network
 import machine
 import urequests
 import math
+import error_detection
 BASEPATH = "/t/"
 SETTINGSPATH =  BASEPATH+ "System/Settings.json"
+DETECTOR = error_detection.ErrorDetector()
 
 
 
@@ -24,6 +26,11 @@ def loadJson(file):
             settings = ujson.load(f)
             return settings
     except OSError as e:
+        DETECTOR.error(
+            error_detection.ErrorCode.IO_FAILURE,
+            "Failed to load JSON file",
+            {"file": file, "error": str(e)},
+        )
         print(e)
         return None
 
@@ -33,6 +40,11 @@ def saveJson(file, data):
         with open(file, "w") as f:
             ujson.dump(data, f)
     except OSError as e:
+        DETECTOR.error(
+            error_detection.ErrorCode.IO_FAILURE,
+            "Failed to save JSON file",
+            {"file": file, "error": str(e)},
+        )
         print(e)
         return None
 
@@ -43,6 +55,11 @@ def saveFile(file, data, mode="w"):
         with open(file, mode) as f:
             f.write(data)
     except OSError as e:
+        DETECTOR.error(
+            error_detection.ErrorCode.IO_FAILURE,
+            "Failed to write file chunk",
+            {"file": file, "error": str(e)},
+        )
         print(e)
         return None
 
@@ -72,8 +89,16 @@ def networkCheck():
     try:
         network["register"] = cell.register() 
     except RuntimeError as e:
-        pass
+        DETECTOR.warn(
+            error_detection.ErrorCode.NETWORK_FAILURE,
+            "Failed register call",
+            {"error": str(e)},
+        )
     network["statuons"] = cell.stations()
+    try:
+        error_detection.validate_network_snapshot(network)
+    except error_detection.DetectedError as e:
+        DETECTOR.error(e.code, e.message, e.context)
     return network
 
 
@@ -191,6 +216,7 @@ def processChunk(data: Update, network: Network, routes: dict) -> str:
     
     # if the file has not been written, write the next chunk
     data.chunk= response
+    error_detection.validate_chunk_state(data.fileSize, data.amountWritten, data.chunk)
     data.runCheckSum()
 
     saveFile(BASEPATH+data.fileName, response, "a")
@@ -206,6 +232,11 @@ def processChunk(data: Update, network: Network, routes: dict) -> str:
 def parseInstruction(instruction:dict,network:Network,routes:dict)->str:
     print("Recieved Instructions from Server: {}".format(instruction))
     MODE = None 
+    try:
+        error_detection.validate_instruction(instruction)
+    except error_detection.DetectedError as e:
+        DETECTOR.error(e.code, e.message, e.context)
+        return MODE
     currentAction = instruction["action"]
     instruction["chunkSize"] = network.bufferSize
 
@@ -273,6 +304,15 @@ def main():
     print("Starting System",)
     data = {}
     settings = loadJson(SETTINGSPATH)
+    if settings is None:
+        print("Failed to load settings")
+        return
+    try:
+        error_detection.validate_settings(settings)
+    except error_detection.DetectedError as e:
+        DETECTOR.error(e.code, e.message, e.context)
+        print("Invalid settings:", e.message, e.context)
+        return
     network = Network.new(settings["provider"],settings["server"])
 
     initialized= init(data,settings,network)
