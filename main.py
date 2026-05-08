@@ -14,6 +14,8 @@ import urequests
 import math
 BASEPATH = "/t/"
 SETTINGSPATH =  BASEPATH+ "System/Settings.json"
+JOURNEY_STATE_FILE = BASEPATH + "System/JourneyState.json"
+JOURNEY_HISTORY_FILE = BASEPATH + "System/JourneyHistory.json"
 
 
 
@@ -58,6 +60,57 @@ def getLocation():
     currentLocation = {"latitude": 64.46382, "longitude": -44.5345}
     location = currentLocation
     return location
+
+
+def haversine_km(start: dict, end: dict) -> float:
+    lat1 = math.radians(start["latitude"])
+    lon1 = math.radians(start["longitude"])
+    lat2 = math.radians(end["latitude"])
+    lon2 = math.radians(end["longitude"])
+    delta_lat = lat2 - lat1
+    delta_lon = lon2 - lon1
+    a = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return 6371 * c
+
+
+class JourneyTracker:
+    def __init__(self):
+        self.started_at = int(time.time())
+        self.ended_at = None
+        self.points = []
+        self.total_distance_km = 0.0
+
+    def add_point(self, point: dict):
+        point_entry = {
+            "timestamp": int(time.time()),
+            "latitude": point["latitude"],
+            "longitude": point["longitude"],
+        }
+        if len(self.points) > 0:
+            previous = self.points[-1]
+            self.total_distance_km += haversine_km(previous, point_entry)
+        self.points.append(point_entry)
+
+    def stop(self):
+        self.ended_at = int(time.time())
+
+    def summary(self) -> dict:
+        end_time = self.ended_at if self.ended_at is not None else int(time.time())
+        return {
+            "startedAt": self.started_at,
+            "endedAt": self.ended_at,
+            "durationSeconds": end_time - self.started_at,
+            "distanceKm": round(self.total_distance_km, 3),
+            "pointCount": len(self.points),
+            "points": self.points,
+        }
+
+    def persist(self):
+        saveJson(JOURNEY_STATE_FILE, self.summary())
 
 
 def networkCheck():
@@ -113,12 +166,12 @@ def init(system:dict,settings:dict,network:Network) -> bool:
             time.sleep(60)
     
 
-def track(network, routes ,interval) -> str:
+def track(network, routes, interval) -> str:
     connection = network.connect()
     data = getLocation()
     requestAmount = 200
 
-    response, headers=network.post(
+    response = network.post(
         path=		routes["location"],
         data= 		data,
         headers=	{"Connection":"close" },
@@ -127,8 +180,43 @@ def track(network, routes ,interval) -> str:
         socket=		connection
     )
     print("Server Response:{} \n\n Sending nextLocation".format(response))
-    connection.close()
     return response
+
+
+def runJourneyTracking(network, routes, interval, max_points=10):
+    tracker = JourneyTracker()
+    index = 0
+    while index < max_points:
+        location = getLocation()
+        tracker.add_point(location)
+        response = network.post(
+            path=routes["location"],
+            data={
+                "journeyId": tracker.started_at,
+                "pointIndex": index,
+                "location": location,
+                "distanceKm": round(tracker.total_distance_km, 3),
+                "timestamp": int(time.time()),
+            },
+            headers={"Connection": "close"},
+            quantity=1,
+            interval=0,
+        )
+        print("Tracking point {} response: {}".format(index, response))
+        tracker.persist()
+        index += 1
+        if interval > 0 and index < max_points:
+            time.sleep(interval)
+
+    tracker.stop()
+    journey = tracker.summary()
+    history = loadJson(JOURNEY_HISTORY_FILE)
+    if history is None or not isinstance(history, list):
+        history = []
+    history.append(journey)
+    saveJson(JOURNEY_HISTORY_FILE, history)
+    saveJson(JOURNEY_STATE_FILE, journey)
+    return journey
 
 
 class Update:
@@ -286,11 +374,16 @@ def main():
     currentMode = modes["currentMode"] 
     if currentMode== "tracking":
         print("Starting Tracking")
-        track(
+        tracking_mode = modes[currentMode]
+        interval = tracking_mode.get("interval", 60)
+        max_points = tracking_mode.get("maxPoints", 10)
+        journey = runJourneyTracking(
             network =   network, 
             routes  =   settings["server"]["routes"],
-            interval=   modes[currentMode]["interval"]
+            interval=   interval,
+            max_points=max_points
         )
+        data["journey"] = journey
     elif currentMode == "idle":
         print("Entering Idle Mode")
         pass
