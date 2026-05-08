@@ -45,8 +45,17 @@ class TestErrorDetection(unittest.TestCase):
         self.assertEqual(ctx.exception.code, ed.ErrorCode.INSTRUCTION_INVALID)
 
     def test_validate_instruction_update_requires_data(self):
-        with self.assertRaises(ed.DetectedError):
+        with self.assertRaises(ed.DetectedError) as ctx:
             ed.validate_instruction({"action": "update"})
+        self.assertEqual(ctx.exception.code, ed.ErrorCode.INSTRUCTION_INVALID)
+        self.assertEqual(ctx.exception.message, "Update instruction missing data")
+        self.assertEqual(ctx.exception.context, {})
+
+        update_instruction = {
+            "action": "update",
+            "data": {"url": "https://example.com/fw.bin"},
+        }
+        self.assertTrue(ed.validate_instruction(update_instruction))
 
     def test_validate_chunk_state_rejects_invalid_range(self):
         with self.assertRaises(ed.DetectedError) as ctx:
