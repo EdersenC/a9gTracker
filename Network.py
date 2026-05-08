@@ -21,7 +21,7 @@ class new:
 
                             
 
-    def start(self,attempt,maxattempts = 5) -> bool:
+    def start(self, attempt=0, maxattempts=5) -> bool:
         if self.gprsStatus():
             print("GPRS IS ALREADY CONNECTED")
             return True
@@ -35,15 +35,16 @@ class new:
                 return self.start(attempt)
             time.sleep(60)
             machine.reset()
-            return True
+            return False
         except Exception as ex:
             if str(ex).endswith("ETIMEDOUT"):
                 print("Timed Out: ",ex)
                 cellular.reset()
                 machine.reset()
+                return False
             else:
                 print("Exception occured at init: ",ex)
-                return True
+                return False
 
     def stop(self):
         cellular.gprs(False)
@@ -65,8 +66,7 @@ class new:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
             addr_info = socket.getaddrinfo(host, port)
             s.connect(addr_info[0][4])
-            file = s.makefile("rb")
-            self.file = file
+            self.file = s.makefile("rb")
             if port == 443:
                 s = ssl.wrap_socket(s)
             return s
@@ -100,7 +100,7 @@ class new:
              quantity:int = 1,
              interval:int = 0,
              socket:socket = None
-        ) -> str:
+        ) -> tuple:
         if auth == "":
             auth = self.auth
         if host == "":
@@ -120,19 +120,40 @@ class new:
                 time.sleep(interval)
             response = socket.read()
             socket.close()
-            return response 
+            return self.parseResponse(response)
         except OSError as e:
             if str(e) == "-256":
                 print("Socket Closed:{} \n\n Reconnecting To:{}".format(e,host))
                 return self.post(path=path,data=data,auth=auth,quantity=quantity)
             print(e)
+            return ("", {})
         
 
-    def formHeaders(headers:dict) -> str:
+    def formHeaders(self, headers:dict) -> str:
         headersString = ""
         for key in headers:
             headersString += "{}:{}\r\n".format(key,headers[key])
         return headersString
+
+    def parseResponse(self, response) -> tuple:
+        if response is None:
+            return ("", {})
+        if isinstance(response, bytes):
+            response = response.decode("utf-8", "ignore")
+
+        sections = response.split("\r\n\r\n", 1)
+        if len(sections) == 1:
+            return (response, {})
+
+        raw_headers, body = sections
+        header_lines = raw_headers.split("\r\n")
+        headers = {}
+        for line in header_lines[1:]:
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            headers[key.strip()] = value.strip()
+        return (body, headers)
 
     def formRequest(self,type:str,path:str,data:dict,host:str,headers:dict) -> str:
         dataString = "" 
