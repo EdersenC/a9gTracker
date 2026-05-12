@@ -15,6 +15,11 @@ class StorageFullError(RuntimeError):
 
 class RingBufferStorage:
     def __init__(self, root_dir: str, profile: RetentionProfile) -> None:
+        if profile.overwrite_policy != "oldest-unlocked-first":
+            raise ValueError(
+                f"unsupported overwrite policy {profile.overwrite_policy!r}; expected "
+                "'oldest-unlocked-first'"
+            )
         self.profile = profile
         self.index = StorageIndex(root_dir)
         self.index.load()

@@ -11,16 +11,20 @@ def resolve_retention_profile(
     installed_capacity_bytes: int,
     min_free_reserve_bytes: int = 0,
     lock_default_ttl_seconds: int = 0,
+    max_supported_bytes: int = ONE_TIB_BYTES,
+    overwrite_policy: str = "oldest-unlocked-first",
 ) -> RetentionProfile:
-    max_supported = ONE_TIB_BYTES
+    max_supported = max(0, max_supported_bytes) or ONE_TIB_BYTES
     installed = max(0, installed_capacity_bytes)
     configured = max(0, configured_capacity_bytes)
-    effective_capacity = min(configured, installed, max_supported)
+    requested_capacity = configured if configured > 0 else installed
+    effective_capacity = min(requested_capacity, installed, max_supported)
+    reserve = min(max(0, min_free_reserve_bytes), effective_capacity)
     return RetentionProfile(
         name=profile_name,
         max_supported_bytes=max_supported,
         capacity_limit_bytes=effective_capacity,
-        min_free_reserve_bytes=max(0, min_free_reserve_bytes),
+        min_free_reserve_bytes=reserve,
         lock_default_ttl_seconds=max(0, lock_default_ttl_seconds),
-        overwrite_policy="oldest-unlocked-first",
+        overwrite_policy=overwrite_policy or "oldest-unlocked-first",
     )

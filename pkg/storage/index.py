@@ -84,12 +84,14 @@ class StorageIndex:
     def _reconcile_with_filesystem(self) -> None:
         available_records: list[SegmentRecord] = []
         known_ids = set()
+        referenced_files: set[Path] = set()
         for segment in self._segments:
             media_path = Path(segment.file_path)
             if media_path.exists():
                 segment.size_bytes = media_path.stat().st_size
                 available_records.append(segment)
                 known_ids.add(segment.segment_id)
+                referenced_files.add(media_path.resolve())
 
         for sidecar_record in self._load_from_sidecars():
             if sidecar_record.segment_id in known_ids:
@@ -98,6 +100,17 @@ class StorageIndex:
             if media_path.exists():
                 sidecar_record.size_bytes = media_path.stat().st_size
                 available_records.append(sidecar_record)
+                referenced_files.add(media_path.resolve())
+
+        for media_file in self.media_dir.iterdir():
+            if not media_file.is_file():
+                continue
+            if media_file.resolve() in referenced_files:
+                continue
+            try:
+                media_file.unlink()
+            except OSError:
+                continue
         self._segments = available_records
 
     def _load_from_sidecars(self) -> list[SegmentRecord]:

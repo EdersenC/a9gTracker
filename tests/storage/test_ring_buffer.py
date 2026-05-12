@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from pkg.storage import RingBufferStorage, StorageFullError, resolve_retention_profile
+from services.storage import StorageService
 
 
 def utc_timestamp(offset_seconds: int) -> datetime:
@@ -83,6 +84,16 @@ class TestRingBufferStorage(unittest.TestCase):
         self.assertEqual(profile.max_supported_bytes, one_tib)
         self.assertEqual(profile.capacity_limit_bytes, 50 * 1024 * 1024 * 1024)
 
+    def test_retention_profile_uses_installed_capacity_when_unset(self) -> None:
+        profile = resolve_retention_profile(
+            profile_name="default",
+            configured_capacity_bytes=0,
+            installed_capacity_bytes=100,
+            min_free_reserve_bytes=200,
+        )
+        self.assertEqual(profile.capacity_limit_bytes, 100)
+        self.assertEqual(profile.min_free_reserve_bytes, 100)
+
     def test_recovery_with_corrupted_catalog_uses_sidecars(self) -> None:
         source = Path(self.tmp.name) / "recovery.mp4"
         create_segment_file(source, 30)
@@ -122,6 +133,65 @@ class TestRingBufferStorage(unittest.TestCase):
 
         self.storage.ingest_segment(source3, utc_timestamp(21), utc_timestamp(30))
         self.assertEqual(len(self.storage.list_segments()), 2)
+
+    def test_recovery_removes_orphan_media_files(self) -> None:
+        orphan_file = self.root / "media" / "orphan.mp4"
+        orphan_file.parent.mkdir(parents=True, exist_ok=True)
+        create_segment_file(orphan_file, 16)
+
+        profile = resolve_retention_profile(
+            profile_name="test-profile",
+            configured_capacity_bytes=100,
+            installed_capacity_bytes=100,
+        )
+        RingBufferStorage(root_dir=str(self.root), profile=profile)
+        self.assertFalse(orphan_file.exists())
+
+    def test_naive_datetimes_are_rejected(self) -> None:
+        source = Path(self.tmp.name) / "naive.mp4"
+        create_segment_file(source, 20)
+        with self.assertRaises(ValueError):
+            self.storage.ingest_segment(
+                source,
+                datetime(2026, 1, 1, 12, 0, 0),
+                datetime(2026, 1, 1, 12, 0, 10),
+            )
+
+
+class TestStorageServiceConfig(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def test_from_config_supports_yaml_without_pyyaml(self) -> None:
+        config_path = self.root / "storage.yaml"
+        config_path.write_text(
+            "\n".join(
+                [
+                    "storage:",
+                    "  profile: shipped-default-1tb",
+                    "  max_supported_bytes: 500",
+                    "  min_free_reserve_bytes: 20",
+                    "  ring_buffer:",
+                    "    overwrite_policy: oldest-unlocked-first",
+                    "  lock:",
+                    "    policy: event-protected",
+                    "    default_ttl_seconds: 0",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        service = StorageService.from_config(
+            config_path=str(config_path),
+            storage_root=str(self.root / "storage"),
+            installed_capacity_bytes=400,
+        )
+
+        self.assertEqual(service.storage.profile.capacity_limit_bytes, 400)
+        self.assertEqual(service.storage.profile.max_supported_bytes, 500)
+        self.assertEqual(service.storage.profile.min_free_reserve_bytes, 20)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,6 @@ storage:
   min_free_reserve_bytes: 536870912
   ring_buffer:
     overwrite_policy: oldest-unlocked-first
-    ordering: sequence-ascending
   lock:
     policy: event-protected
     default_ttl_seconds: 0
