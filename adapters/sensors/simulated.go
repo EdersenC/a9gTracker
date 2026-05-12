@@ -24,9 +24,10 @@ func (s *SimulatedSensor) Stream(ctx context.Context) (<-chan trigger.Sample, <-
 		if interval <= 0 {
 			interval = 20 * time.Millisecond
 		}
+		base := time.Now()
 		for i, sample := range s.Samples {
 			if sample.Timestamp.IsZero() {
-				sample.Timestamp = time.Now().Add(time.Duration(i) * interval)
+				sample.Timestamp = base.Add(time.Duration(i) * interval)
 			}
 			select {
 			case <-ctx.Done():

@@ -31,17 +31,27 @@ func NewEngine(cfg Config, sensor Sensor, storage StorageLocker) *Engine {
 
 func (e *Engine) Run(ctx context.Context) error {
 	samples, errs := e.sensor.Stream(ctx)
+	samplesCh := samples
+	errsCh := errs
 	for {
+		if samplesCh == nil && errsCh == nil {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case err := <-errs:
+		case err, ok := <-errsCh:
+			if !ok {
+				errsCh = nil
+				continue
+			}
 			if err != nil {
 				return err
 			}
-		case s, ok := <-samples:
+		case s, ok := <-samplesCh:
 			if !ok {
-				return nil
+				samplesCh = nil
+				continue
 			}
 			if err := e.processSample(ctx, s); err != nil {
 				return err
@@ -76,13 +86,14 @@ func (e *Engine) processSample(ctx context.Context, s Sample) error {
 
 	e.lastEvent = t
 	e.eventSeq++
+	peakG := math.Max(g, e.smoothedG)
 	req := LockRequest{
 		EventID:     fmt.Sprintf("impact-%d", e.eventSeq),
 		TriggeredAt: t,
 		PreWindow:   e.cfg.PreWindow,
 		PostWindow:  e.cfg.PostWindow,
 		Reason:      "g-sensor-impact",
-		PeakG:       e.smoothedG,
+		PeakG:       peakG,
 	}
 	_, err := e.storage.LockIncident(ctx, req)
 	return err

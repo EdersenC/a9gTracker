@@ -18,7 +18,7 @@ func (c Config) withDefaults() Config {
 		c.ThresholdG = 2.5
 	}
 	if c.Cooldown <= 0 {
-		c.Cooldown = 5 * time.Second
+		c.Cooldown = 8 * time.Second
 	}
 	if c.MinConsecutiveHits <= 0 {
 		c.MinConsecutiveHits = 2

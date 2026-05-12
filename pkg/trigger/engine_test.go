@@ -27,6 +27,27 @@ func (s *fakeSensor) Stream(ctx context.Context) (<-chan Sample, <-chan error) {
 	return out, errs
 }
 
+type closedErrSensor struct {
+	samples []Sample
+}
+
+func (s *closedErrSensor) Stream(ctx context.Context) (<-chan Sample, <-chan error) {
+	out := make(chan Sample)
+	errs := make(chan error)
+	go func() {
+		defer close(out)
+		close(errs)
+		for _, sm := range s.samples {
+			select {
+			case <-ctx.Done():
+				return
+			case out <- sm:
+			}
+		}
+	}()
+	return out, errs
+}
+
 type lockCall struct {
 	req LockRequest
 }
@@ -115,5 +136,44 @@ func TestFalsePositiveMitigationWithJerkGate(t *testing.T) {
 	}
 	if len(storage.calls) != 0 {
 		t.Fatalf("expected no lock call for low-jerk readings, got %d", len(storage.calls))
+	}
+}
+
+func TestRunHandlesClosedErrorChannel(t *testing.T) {
+	now := time.Now()
+	sensor := &closedErrSensor{samples: []Sample{
+		{Timestamp: now, AX: 0.1, AY: 0.0, AZ: 1.0},
+	}}
+	storage := &fakeStorage{}
+	engine := NewEngine(Config{}, sensor, storage)
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+}
+
+func TestPeakGUsesRawSampleMagnitudeAtTrigger(t *testing.T) {
+	now := time.Now()
+	sensor := &fakeSensor{samples: []Sample{
+		{Timestamp: now, AX: 0.0, AY: 0.0, AZ: 2.9},
+		{Timestamp: now.Add(20 * time.Millisecond), AX: 0.0, AY: 0.0, AZ: 3.1},
+	}}
+	storage := &fakeStorage{}
+	engine := NewEngine(Config{
+		ThresholdG:         0.5,
+		Cooldown:           2 * time.Second,
+		MinConsecutiveHits: 2,
+		SmoothingAlpha:     0.2,
+		MinJerkG:           0.01,
+	}, sensor, storage)
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if len(storage.calls) != 1 {
+		t.Fatalf("expected 1 lock call, got %d", len(storage.calls))
+	}
+	if storage.calls[0].req.PeakG != 3.1 {
+		t.Fatalf("expected peak g 3.1, got %f", storage.calls[0].req.PeakG)
 	}
 }
