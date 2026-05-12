@@ -1,0 +1,21 @@
+# Raspberry Pi v1 single-camera capture profile (offline only)
+camera:
+  id: front
+  device: /dev/video0
+
+video:
+  width: 1280
+  height: 720
+  fps: 30
+  codec: h264_v4l2m2m
+
+segmentation:
+  duration_seconds: 60
+  filename_pattern: front_%010d.mp4
+  temp_suffix: .partial
+  output_directory: /var/lib/dashcam/capture
+
+runtime:
+  ffmpeg_binary: ffmpeg
+  restart_backoff_ms: 2000
+  health_topic: capture
