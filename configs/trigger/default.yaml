@@ -1,0 +1,14 @@
+trigger:
+  threshold_g: 2.5
+  cooldown: 8s
+  min_consecutive_hits: 2
+  smoothing_alpha: 0.35
+  min_jerk_g: 0.4
+  pre_window: 15s
+  post_window: 30s
+
+# False-positive mitigation:
+# - exponential smoothing attenuates single-sample spikes
+# - jerk gate requires abrupt change, reducing rough-road drift triggers
+# - consecutive hit requirement rejects isolated outliers
+# - cooldown prevents duplicate events from one impact
