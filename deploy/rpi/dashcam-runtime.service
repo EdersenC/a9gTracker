@@ -1,0 +1,27 @@
+[Unit]
+Description=Dashcam Runtime Supervisor (Offline)
+After=local-fs.target systemd-udevd.service
+Wants=local-fs.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=dashcam
+Group=dashcam
+WorkingDirectory=/opt/dashcam
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m services.runtime.main --config /etc/dashcam/runtime.yaml
+ExecStop=/bin/kill -SIGTERM $MAINPID
+Restart=always
+RestartSec=3
+TimeoutStopSec=45
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/dashcam-runtime /var/log/dashcam-runtime
+
+[Install]
+WantedBy=multi-user.target

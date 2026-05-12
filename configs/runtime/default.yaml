@@ -1,0 +1,31 @@
+runtime:
+  device_id: dashcam-rpi-v1
+  runtime_state_dir: /var/lib/dashcam-runtime/state
+  log_dir: /var/log/dashcam-runtime
+  poll_interval_seconds: 2
+  startup_grace_seconds: 20
+  shutdown_grace_seconds: 20
+
+services:
+  - name: storage
+    command: ["/usr/local/bin/dashcam-storage-service", "--config", "/etc/dashcam/runtime.yaml"]
+    start_after: []
+    restart: always
+    stop_timeout_seconds: 20
+    healthcheck: ["/usr/local/bin/dashcam-storage-service", "health"]
+    pre_stop: ["/usr/local/bin/dashcam-storage-service", "flush"]
+
+  - name: capture
+    command: ["/usr/local/bin/dashcam-capture-service", "--config", "/etc/dashcam/runtime.yaml"]
+    start_after: ["storage"]
+    restart: always
+    stop_timeout_seconds: 20
+    healthcheck: ["/usr/local/bin/dashcam-capture-service", "health"]
+    pre_stop: ["/usr/local/bin/dashcam-capture-service", "finalize-active-segment"]
+
+  - name: trigger
+    command: ["/usr/local/bin/dashcam-trigger-service", "--config", "/etc/dashcam/runtime.yaml"]
+    start_after: ["storage", "capture"]
+    restart: always
+    stop_timeout_seconds: 10
+    healthcheck: ["/usr/local/bin/dashcam-trigger-service", "health"]
