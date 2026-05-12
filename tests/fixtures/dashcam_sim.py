@@ -1,4 +1,4 @@
-"""Deterministic v1 dashcam simulation for integration validation.
+"""Deterministic task-scoped v1 dashcam simulation for integration validation.
 
 This fixture models the v1 architecture contracts at a system level:
 - capture service: emits fixed 720p/30fps front-camera segments
@@ -10,7 +10,7 @@ This fixture models the v1 architecture contracts at a system level:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Dict, Iterable, List, Optional
 
 
 BYTES_PER_GB = 1_000_000_000
@@ -58,6 +58,7 @@ class StateStore:
     next_segment_id: int = 0
     next_event_id: int = 1
     unclean_shutdown: bool = False
+    pending_post_lock_segments: Dict[int, List[int]] = field(default_factory=dict)
 
 
 class CaptureService:
@@ -140,7 +141,7 @@ class RuntimeService:
         self.trigger = TriggerService(self.state)
         self.recovered_unclean_shutdown = False
         self._volatile_open_segment: Optional[Segment] = None
-        self._pending_post_lock_segments: Dict[int, Set[int]] = {}
+        self._pending_post_lock_segments = self.state.pending_post_lock_segments
         self.events: List[Event] = []
 
     def boot(self) -> None:
@@ -156,7 +157,7 @@ class RuntimeService:
         self._volatile_open_segment = self.capture.build_segment()
 
     def _apply_pending_post_locks(self, segment_id: int) -> None:
-        event_ids = self._pending_post_lock_segments.pop(segment_id, set())
+        event_ids = self._pending_post_lock_segments.pop(segment_id, [])
         for event_id in event_ids:
             self.storage.lock_segment(segment_id, event_id)
 
@@ -170,7 +171,9 @@ class RuntimeService:
         self.storage.lock_segment(segment.segment_id, event.event_id)
         self.storage.lock_segment(segment.segment_id - 1, event.event_id)
         target_post_segment = segment.segment_id + 1
-        self._pending_post_lock_segments.setdefault(target_post_segment, set()).add(event.event_id)
+        pending_event_ids = self._pending_post_lock_segments.setdefault(target_post_segment, [])
+        if event.event_id not in pending_event_ids:
+            pending_event_ids.append(event.event_id)
         return event
 
     def record_segments(self, count: int, impact_segment_ids: Optional[Iterable[int]] = None) -> int:

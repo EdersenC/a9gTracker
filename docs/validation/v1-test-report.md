@@ -2,13 +2,13 @@
 
 Date: 2026-05-12
 Branch: `codex/orch-7-agent-06-agent-6-integration-testing-and-validation`
-Scope: Raspberry Pi-first v1 behavior validation for offline loop recording, G-sensor lock, retention, and recovery.
+Scope: Task #6 simulation harness validation for v1 dashcam behavior (offline loop recording, G-sensor lock, retention, recovery). This is an isolated test artifact and not the runtime behavior of the A9G tracker code in `main.py`.
 
 ## Execution Summary
 
-- `pytest -q tests/integration tests/soak` -> failed (`pytest: command not found`)
-- `python3 -m pytest -q tests/integration tests/soak` -> failed (`No module named pytest`)
-- Executed integration and soak test functions directly via `python3` script: **PASS**
+- `python3 -m unittest discover -s tests/integration -p "test_*.py"` -> **PASS**
+- `python3 -m unittest discover -s tests/soak -p "test_*.py"` -> **PASS**
+- `python3 -m unittest discover -s tests -p "test_*.py"` -> **PASS**
 
 ## Coverage Matrix
 
@@ -40,7 +40,7 @@ Scope: Raspberry Pi-first v1 behavior validation for offline loop recording, G-s
 
 1. This validation is currently simulation-based because concrete capture/storage/trigger/runtime modules from sibling integration are not present in this worktree.
 2. No hardware-in-the-loop coverage yet (camera device I/O, real IMU noise, SD card wear/latency).
-3. Power-loss recovery test validates metadata consistency but does not model low-level filesystem corruption or partial sector writes.
+3. Power-loss recovery now validates persistence of pending post-event lock intent, but still does not model low-level filesystem corruption or partial sector writes.
 4. No thermal/long-duration endurance timing metrics captured on Raspberry Pi hardware in this run.
 
 ## Verdict
