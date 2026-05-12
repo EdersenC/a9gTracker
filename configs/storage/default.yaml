@@ -1,0 +1,11 @@
+storage:
+  profile: shipped-default-1tb
+  max_supported_bytes: 1099511627776
+  capacity_limit_bytes: 1099511627776
+  min_free_reserve_bytes: 536870912
+  ring_buffer:
+    overwrite_policy: oldest-unlocked-first
+    ordering: sequence-ascending
+  lock:
+    policy: event-protected
+    default_ttl_seconds: 0
