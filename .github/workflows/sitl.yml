@@ -1,0 +1,47 @@
+name: PX4 SITL Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+      - "codex/**"
+
+jobs:
+  sitl-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Test Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+
+      - name: Run SITL Harness Smoke
+        run: |
+          chmod +x scripts/sitl/run_px4_sitl.sh
+          bash scripts/sitl/run_px4_sitl.sh --smoke --scenario ci_smoke
+
+      - name: Run SITL Scenario Suite
+        env:
+          PYTHONPATH: src
+        run: |
+          mkdir -p artifacts/sitl
+          pytest -q tests/sitl --junitxml=artifacts/sitl/junit.xml
+
+      - name: Upload SITL Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sitl-artifacts
+          path: artifacts/sitl
+          if-no-files-found: warn
