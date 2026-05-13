@@ -24,6 +24,28 @@ Environment:
 EOF
 }
 
+require_option_value() {
+  local option_name="$1"
+  if [[ $# -lt 2 || "${2:-}" == --* ]]; then
+    echo "Missing value for ${option_name}" >&2
+    usage >&2
+    exit 2
+  fi
+}
+
+sanitize_scenario_id() {
+  local raw="$1"
+  local safe
+  safe="$(printf '%s' "${raw}" | tr -c 'A-Za-z0-9._-' '_')"
+  safe="${safe#"${safe%%[!._-]*}"}"
+  safe="${safe%"${safe##*[!._-]}"}"
+  if [[ -z "${safe}" ]]; then
+    echo "Invalid scenario id: ${raw}" >&2
+    exit 2
+  fi
+  printf '%s' "${safe}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --smoke)
@@ -31,14 +53,17 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --scenario)
+      require_option_value "$@"
       SCENARIO_ID="$2"
       shift 2
       ;;
     --artifacts-dir)
+      require_option_value "$@"
       ARTIFACTS_DIR="$2"
       shift 2
       ;;
     --timeout)
+      require_option_value "$@"
       TIMEOUT_SECONDS="$2"
       shift 2
       ;;
@@ -55,21 +80,28 @@ while [[ $# -gt 0 ]]; do
 done
 
 mkdir -p "${ARTIFACTS_DIR}"
-RUN_LOG="${ARTIFACTS_DIR}/${SCENARIO_ID}.sitl.log"
-RESULT_JSON="${ARTIFACTS_DIR}/${SCENARIO_ID}.sitl.json"
+SAFE_SCENARIO_ID="$(sanitize_scenario_id "${SCENARIO_ID}")"
+RUN_LOG="${ARTIFACTS_DIR}/${SAFE_SCENARIO_ID}.sitl.log"
+RESULT_JSON="${ARTIFACTS_DIR}/${SAFE_SCENARIO_ID}.sitl.json"
 
 write_result_json() {
   local status="$1"
   local details="$2"
-  cat > "${RESULT_JSON}" <<EOF
-{
-  "scenario_id": "${SCENARIO_ID}",
-  "mode": "${MODE}",
-  "status": "${status}",
-  "details": "${details}",
-  "log_path": "${RUN_LOG}"
+  python3 - "${RESULT_JSON}" "${SCENARIO_ID}" "${MODE}" "${status}" "${details}" "${RUN_LOG}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+result_json, scenario_id, mode, status, details, run_log = sys.argv[1:]
+payload = {
+    "scenario_id": scenario_id,
+    "mode": mode,
+    "status": status,
+    "details": details,
+    "log_path": run_log,
 }
-EOF
+Path(result_json).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
 }
 
 if [[ "${MODE}" == "smoke" ]]; then

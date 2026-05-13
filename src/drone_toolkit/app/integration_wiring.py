@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 import importlib
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+import re
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 
 class IntegrationWiringError(RuntimeError):
@@ -55,11 +56,12 @@ def _load_first_available(
     for candidate in symbol_candidates:
         try:
             resolved = _import_symbol(candidate)
-            if callable(resolved):
-                return resolved(**constructor_kwargs)
-            return resolved
-        except Exception as err:  # pragma: no cover - compatibility shim
+        except (ImportError, AttributeError, IntegrationWiringError) as err:
             last_err = err
+            continue
+        if callable(resolved):
+            return resolved(**constructor_kwargs)
+        return resolved
     raise IntegrationWiringError(
         f"Unable to load any candidate symbol from: {symbol_candidates}"
     ) from last_err
@@ -93,6 +95,7 @@ def build_integration(
             ],
             kwargs,
         )
+    cli_optional = cli_factory is None
     if cli_factory is None:
         cli_factory = lambda **kwargs: _load_first_available(  # noqa: E731
             [
@@ -109,12 +112,14 @@ def build_integration(
     vehicle_port = vehicle_factory(**vehicle_cfg)
     mission_runtime = runtime_factory(vehicle_port=vehicle_port, **runtime_cfg)
 
-    cli = None
-    try:
+    if cli_optional:
+        try:
+            cli = cli_factory(runtime=mission_runtime, vehicle_port=vehicle_port, **cli_cfg)
+        except IntegrationWiringError:
+            # CLI may be optional for scenario-only execution.
+            cli = None
+    else:
         cli = cli_factory(runtime=mission_runtime, vehicle_port=vehicle_port, **cli_cfg)
-    except Exception:
-        # CLI may be optional for scenario-only execution.
-        cli = None
 
     return IntegrationBundle(
         vehicle_port=vehicle_port,
@@ -139,6 +144,33 @@ def _event_to_dict(event: Any) -> Dict[str, Any]:
     if hasattr(event, "__dict__"):
         return dict(vars(event))
     return {"value": str(event)}
+
+
+def _collect_runtime_trace(runtime: Any, candidate_names: Sequence[str]) -> List[Any]:
+    for name in candidate_names:
+        value = getattr(runtime, name, None)
+        if value is None:
+            continue
+        if callable(value):
+            try:
+                result = value()
+            except TypeError:
+                continue
+        else:
+            result = value
+        if result is None:
+            continue
+        try:
+            return list(result)
+        except TypeError:
+            continue
+    return []
+
+
+def _safe_artifact_stem(scenario_id: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(scenario_id))
+    safe = safe.strip("._-")
+    return safe or "scenario"
 
 
 class PX4SITLScenarioHarnessV1:
@@ -179,22 +211,40 @@ class PX4SITLScenarioHarnessV1:
         expected_events = set(expected_failsafe_events)
         observed_states = list(runtime_state_sequence or [])
         raw_events = list(runtime_event_sequence or [])
-        failsafe_events = [_event_to_dict(event) for event in raw_events]
-        observed_event_kinds = {_extract_event_kind(event) for event in failsafe_events}
 
-        if integration_bundle is not None and not observed_states:
+        if (
+            integration_bundle is None
+            and runtime_event_sequence is None
+            and runtime_state_sequence is None
+        ):
+            integration_bundle = self.integration_factory()
+
+        if (
+            integration_bundle is not None
+            and runtime_event_sequence is None
+            and runtime_state_sequence is None
+        ):
             runtime = integration_bundle.mission_runtime
             runtime.start(mission_plan)
-            if hasattr(runtime, "state_trace"):
-                observed_states = list(runtime.state_trace())
+            observed_states = _collect_runtime_trace(
+                runtime,
+                ["state_trace", "get_state_trace", "states"],
+            )
+            raw_events = _collect_runtime_trace(
+                runtime,
+                ["event_trace", "get_event_trace", "events"],
+            )
             final_state = getattr(runtime, "get_state", lambda: "UNKNOWN")()
         else:
             final_state = observed_states[-1] if observed_states else "UNKNOWN"
 
+        failsafe_events = [_event_to_dict(event) for event in raw_events]
+        observed_event_kinds = {_extract_event_kind(event) for event in failsafe_events}
         terminal_state_ok = final_state in expected_states
         events_ok = expected_events.issubset(observed_event_kinds)
         passed = terminal_state_ok and events_ok
 
+        artifact_stem = _safe_artifact_stem(scenario_id)
         trace = {
             "scenario_id": scenario_id,
             "timestamp_utc": _utc_now_iso8601(),
@@ -206,7 +256,7 @@ class PX4SITLScenarioHarnessV1:
             "failsafe_events": failsafe_events,
             "metadata": metadata,
         }
-        trace_path = self.artifact_dir / f"{scenario_id}.trace.json"
+        trace_path = self.artifact_dir / f"{artifact_stem}.trace.json"
         trace_path.write_text(json.dumps(trace, indent=2, sort_keys=True), encoding="utf-8")
 
         result = SITLScenarioResultV1(
@@ -220,10 +270,9 @@ class PX4SITLScenarioHarnessV1:
             artifact_paths={"json_trace": str(trace_path)},
         )
 
-        result_path = self.artifact_dir / f"{scenario_id}.result.json"
+        result_path = self.artifact_dir / f"{artifact_stem}.result.json"
         result_path.write_text(
             json.dumps(asdict(result), indent=2, sort_keys=True),
             encoding="utf-8",
         )
         return result
-
